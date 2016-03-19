@@ -1,0 +1,9 @@
+web:
+  build: .
+  ports:
+    - 81:8080
+  environment:
+    - S3_URL
+    - SES_URL
+    - SNS_URL
+    - SQS_URL
