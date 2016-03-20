@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/sqs"
@@ -30,6 +32,34 @@ type S3 struct {
 
 type S3Object struct {
 	Key string `json:"key"`
+}
+
+// S3Service takes S3_URL and returns an S3 session and bucket name
+// S3_URL is in format of s3://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@BUCKET
+func S3Service() (*s3.S3, string, error) {
+	u, err := url.Parse(os.Getenv("S3_URL"))
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	p, ok := u.User.Password()
+
+	if !ok {
+		return nil, "", fmt.Errorf("Could not read SecretAccessKey from S3_URL")
+	}
+
+	secret, err := base64.StdEncoding.DecodeString(p)
+	if err != nil {
+		return nil, "", err
+	}
+
+	svc := s3.New(session.New(&aws.Config{
+		Region:      aws.String(os.Getenv("AWS_REGION")),
+		Credentials: credentials.NewStaticCredentials(u.User.Username(), string(secret), ""),
+	}))
+
+	return svc, u.Host, nil
 }
 
 func LongPollSQS() {
@@ -93,10 +123,12 @@ func LongPollSQS() {
 }
 
 func PresignURL(w http.ResponseWriter, r *http.Request) {
-	svc := s3.New(session.New(&aws.Config{Region: aws.String(os.Getenv("AWS_REGION"))}))
+	svc, bucket, err := S3Service()
 
-	u, _ := url.Parse(os.Getenv("S3_URL"))
-	bucket := u.Host
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
 	key := fmt.Sprintf("%d", time.Now().UnixNano())
 	fmt.Printf("s3.PutObjectRequest.Presign bucket=%s key=%s\n", bucket, key)
