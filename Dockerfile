@@ -1,6 +1,6 @@
 FROM gliderlabs/alpine:edge
 
-RUN apk-install go
+RUN apk-install ca-certificates go
 
 ENV GOPATH /go
 ENV PATH $GOPATH/bin:$PATH
