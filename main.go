@@ -34,29 +34,52 @@ type S3Object struct {
 	Key string `json:"key"`
 }
 
-// S3Service takes S3_URL and returns an S3 session and bucket name
-// S3_URL is in format of s3://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@BUCKET
-func S3Service() (*s3.S3, string, error) {
-	u, err := url.Parse(os.Getenv("S3_URL"))
+// extractCredentials takes the name of an environment variable, e.g. "S3_URL"
+// and returns the extracted AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY values and a url with no auth info.
+// The env URL is in the format of service://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@...
+func extractCredentials(key string) (string, string, *url.URL, error) {
+	val := os.Getenv(key)
+
+	if val == "" {
+		return "", "", nil, fmt.Errorf("%s not set", key)
+	}
+
+	u, err := url.Parse(val)
 
 	if err != nil {
-		return nil, "", err
+		return "", "", nil, err
 	}
+
+	id := u.User.Username()
 
 	p, ok := u.User.Password()
 
 	if !ok {
-		return nil, "", fmt.Errorf("Could not read SecretAccessKey from S3_URL")
+		return "", "", nil, fmt.Errorf("Could not read AWS_SECRET_ACCESS_KEY from %s", key)
 	}
 
 	secret, err := base64.StdEncoding.DecodeString(p)
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	u.User = url.UserPassword("", "")
+
+	return id, string(secret), u, nil
+}
+
+// S3Service takes S3_URL and returns an S3 session and bucket name
+// S3_URL is in format of s3://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@BUCKET
+func S3Service() (*s3.S3, string, error) {
+	id, secret, u, err := extractCredentials("S3_URL")
+
 	if err != nil {
 		return nil, "", err
 	}
 
 	svc := s3.New(session.New(&aws.Config{
 		Region:      aws.String(os.Getenv("AWS_REGION")),
-		Credentials: credentials.NewStaticCredentials(u.User.Username(), string(secret), ""),
+		Credentials: credentials.NewStaticCredentials(id, secret, ""),
 	}))
 
 	return svc, u.Host, nil
@@ -65,30 +88,18 @@ func S3Service() (*s3.S3, string, error) {
 // SQSService takes SQS_URL and returns an SQS session and Queue URL
 // SQS_URL is in format of sqs://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@sqs.us-east-1.amazonaws.com/132866487567/convox-sqs-3558-Queue-1WA5NT8U6A3XH
 func SQSService() (*sqs.SQS, string, error) {
-	u, err := url.Parse(os.Getenv("SQS_URL"))
+	id, secret, u, err := extractCredentials("SQS_URL")
 
-	if err != nil {
-		return nil, "", err
-	}
-
-	p, ok := u.User.Password()
-
-	if !ok {
-		return nil, "", fmt.Errorf("Could not read SecretAccessKey from SQS_URL")
-	}
-
-	secret, err := base64.StdEncoding.DecodeString(p)
 	if err != nil {
 		return nil, "", err
 	}
 
 	svc := sqs.New(session.New(&aws.Config{
 		Region:      aws.String(os.Getenv("AWS_REGION")),
-		Credentials: credentials.NewStaticCredentials(u.User.Username(), string(secret), ""),
+		Credentials: credentials.NewStaticCredentials(id, secret, ""),
 	}))
 
 	u.Scheme = "https"
-	u.User = url.UserPassword("", "")
 
 	return svc, u.String(), nil
 }
