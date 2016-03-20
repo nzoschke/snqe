@@ -62,13 +62,48 @@ func S3Service() (*s3.S3, string, error) {
 	return svc, u.Host, nil
 }
 
+// SQSService takes SQS_URL and returns an SQS session and Queue URL
+// SQS_URL is in format of sqs://AWS_ACCESS_KEY_ID:base64(AWS_SECRET_ACCESS_KEY)@sqs.us-east-1.amazonaws.com/132866487567/convox-sqs-3558-Queue-1WA5NT8U6A3XH
+func SQSService() (*sqs.SQS, string, error) {
+	u, err := url.Parse(os.Getenv("SQS_URL"))
+
+	if err != nil {
+		return nil, "", err
+	}
+
+	p, ok := u.User.Password()
+
+	if !ok {
+		return nil, "", fmt.Errorf("Could not read SecretAccessKey from SQS_URL")
+	}
+
+	secret, err := base64.StdEncoding.DecodeString(p)
+	if err != nil {
+		return nil, "", err
+	}
+
+	svc := sqs.New(session.New(&aws.Config{
+		Region:      aws.String(os.Getenv("AWS_REGION")),
+		Credentials: credentials.NewStaticCredentials(u.User.Username(), string(secret), ""),
+	}))
+
+	u.Scheme = "https"
+	u.User = url.UserPassword("", "")
+
+	return svc, u.String(), nil
+}
+
 func LongPollSQS() {
-	svc := sqs.New(session.New(&aws.Config{Region: aws.String(os.Getenv("AWS_REGION"))}))
+	svc, queueUrl, err := SQSService()
+
+	if err != nil {
+		fmt.Printf("SQSService error=%q\n", err)
+	}
 
 	for {
 		fmt.Printf("sqs.ReceiveMessage WaitTimeSeconds=20\n")
 		m, err := svc.ReceiveMessage(&sqs.ReceiveMessageInput{
-			QueueUrl:        aws.String(os.Getenv("SQS_URL")),
+			QueueUrl:        aws.String(queueUrl),
 			WaitTimeSeconds: aws.Int64(20),
 		})
 
@@ -112,7 +147,7 @@ func LongPollSQS() {
 		fmt.Printf("sqs.DeleteMessageBatch NumEntries=%d\n", len(entries))
 		_, err = svc.DeleteMessageBatch(&sqs.DeleteMessageBatchInput{
 			Entries:  entries,
-			QueueUrl: aws.String(os.Getenv("SQS_URL")),
+			QueueUrl: aws.String(queueUrl),
 		})
 
 		if err != nil {
