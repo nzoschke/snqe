@@ -2,34 +2,43 @@
 
 Store, Notify, Queue, Email with S3, SNS, SQS, and SES
 
-Create backing services. SQS and S3 are connected through an SNS topic.
+This demonstrates how Convox simplifies managing AWS services:
+
+* Provision an SQS queue with a single command
+* Provision an S3 bucket configured to send notifications to the SQS queue with a single command
+* Get and set S3_URL and SQS_URL in an app environment
+* Interact with S3 and SQS in the app
+
+This is a work in progress. SNS, SES and service/app linking are not yet implemented.
+
+## Setup
+
+Create backing SQS and S3 services
 
 ```
-$ convox services create ses
-$ convox services create sns
-$ convox services create sqs --topic $SNS
-$ convox services create s3  --topic $SNS
+$ convox services create sqs --name mysqs
+$ convox services create s3  --name mys3 --queue mysqs
 ```
 
-Link services to the app to set S3_URL, etc.
+Create an app and set service URLs
 
 ```
 $ convox apps create
-Creating snqe...
+Creating app snqe... CREATING
+
+$ convox env set SQS_URL=$(convox api get /services/mysqs | jq -r '.exports.URL')
+$ convox env set S3_URL=$(convox api get /services/mys3 | jq -r '.exports.URL')
 
 $ convox deploy
 Deploying...
-
-$ convox services link ses
-$ convox services link sns
-$ convox services link sqs
-$ convox services link s3
 ```
+
+## App Logic
 
 The app uses S3_URL to pre-sign an S3 PUT URL to give to a client to upload content.
 
 ```
-$ APP_URL=$(convox api get /apps/snqe/formation | jq '.[] | select(.name == "web") | .balancer')
+$ APP_URL=$(convox api get /apps/snqe/formation | jq -r '.[] | select(.name == "web") | .balancer')
 
 $ curl -sS -i -X PUT -T Readme.md $(curl -s $APP_URL)
 HTTP/1.1 100 Continue
